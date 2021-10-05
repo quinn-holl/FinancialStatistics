@@ -1,0 +1,159 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+library(tidyverse)
+library(boot)
+```
+
+```{r}
+logRet <- read_table("m_logret_10stocks.txt", col_names = TRUE)
+head(logRet)
+numAssets <- (ncol(logRet) - 1)
+```
+
+
+```{r}
+#need to create a function to calculate sample Mean and sample covariance to be used in boot
+
+sampleStat <- function(data, idx){
+  data2 <- data[idx, ]
+  numericCol <- data2 %>% sapply(is.numeric)
+  sampleMean <- data2 %>% summarise_if(is.numeric, mean)
+  sampleCov <- cov(data2[,numericCol])
+  return( list(sampleMean, sampleCov))
+}
+
+
+```
+
+```{r}
+#Compute the sample means 
+idx <- 1:nrow(logRet)
+sample <- sampleStat(logRet)
+sampleMean <- sample[1]
+sampleCov <- sample[2]
+sampleMean
+sampleCov
+```
+
+
+```{r}
+optimalWeight <-function(sampleMean, sampleCovariance, targetReturn, rf){
+  rfMatrix <- matrix(rf, nrow = nrow(sampleMeanMatrix), ncol = ncol(sampleMeanMatrix))
+  inverseCov <- solve(sampleCovMatrix)
+  riskAdjMean <- sampleMeanMatrix - rfMatrix
+
+
+  weightDenominator <- riskAdjMean %*% inverseCov %*% t(riskAdjMean)
+  weightCoeff <- (targetReturn - rf) / weightDenominator[1,1]
+
+  optimalWeights <- weightCoeff * inverseCov %*% t(riskAdjMean)
+  
+  return(optimalWeights)
+}
+
+
+```
+
+
+
+```{r}
+#Assume monthly target return of 0.3%. Estimate optimal portfolio weights when
+#shortselling is allowed, and rf = 0
+
+rf <- 0.0
+targetReturn <- 0.3
+optimalWeights <- optimalWeight(sampleMean, sampleCovariance, targetReturn, rf)
+
+#check that these weights have our expected return:
+return <- t(optimalWeights) %*% t(sampleMeanMatrix)
+return
+
+```
+
+
+```{r}
+
+bootstrapWeights <- function(data, statisticFunction, targetReturn, rf, B = 500){
+  cumWeights <- matrix(0, nrow = ncol(data) - 1, ncol = 1)
+  resamples <- 1:B
+  for (i in resamples){
+    iStats <- statisticFunction(data, sample(nrow(data), replace = TRUE))
+    iMean <- iStats[1]
+    iCov <- iStats[2]
+    iOptWeight <- optimalWeight(iMean, iCov, targetReturn, rf)
+    cumWeights <- cumWeights + iOptWeight
+  }
+  cumWeights <- (cumWeights * (1.0/B))
+  return(cumWeights)
+}
+```
+
+```{r}
+
+#Do the same as before, but now with 500 bootstrap samples
+bootWeights <- bootstrapWeights(logRet, sampleStat, targetReturn, rf)
+bootWeights
+
+```
+
+```{r}
+#Want to create a grid and plot the estimated Efficient Frontier
+
+#First need to create a mesh of expected returns
+
+
+mu = seq(-0.5, 0.5, by = 0.01)
+sig = c()
+for (i in mu){
+  iOptWeight <- optimalWeight(sampleMeanMatrix, sampleCovMatrix, i, rf)
+  isig = t(iOptWeight) %*% sampleCovMatrix %*% iOptWeight
+  sig <- append(sig, isig[1,1])
+}
+```
+
+
+```{r}
+plot(sig, mu, type = "o")
+
+```
+
+
+```{r}
+#Want to create a grid and plot the estimated Efficient Frontier but for bootstrapped samples
+
+#First need to create a mesh of expected returns
+
+
+bootMu = seq(-0.5, 0.5, by = 0.01)
+bootSig = c()
+for (i in bootMu){
+  ibootWeight <- bootstrapWeights(logRet, sampleStat, i, rf)
+  isig = t(ibootWeight) %*% sampleCovMatrix %*% ibootWeight
+  bootSig <- append(bootSig, isig[1,1])
+}
+```
+
+```{r}
+plot(bootSig, bootMu, type = "o")
+
+```
+
+
+```{r}
+plot(bootSig, bootMu, type = "o", col = "red", xlab = "Std Dev.", 
+     ylab = "Expected Return", main = "Efficient Frontier")
+
+lines(sig, mu, type = "o")
+
+```
+
+
+
+
+
