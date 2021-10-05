@@ -1,0 +1,171 @@
+---
+title: "Exercise 5.10"
+output: html_notebook
+---
+
+
+```{r}
+logRet <- read_table("m_logret_10stocks.txt", col_names = TRUE)
+capmRef <- read_table("m_sp500ret_3mtcm.txt", col_names = TRUE)
+
+#switch all to log returns
+capmRef <- capmRef %>% mutate(sp500 = log(sp500+1))
+capmRef <- capmRef %>% mutate(`3mTCM` = log((`3mTCM`/(100*12))+1))
+
+numericCol <- capmRef %>% sapply(is.numeric)
+capm <- bind_cols(logRet, capmRef[numericCol])
+
+head(capm)
+
+```
+
+
+
+
+
+```{r}
+#Create risk-adjusted datafile (subtract)
+capmAdjusted <- capm %>% mutate(across(AAPL:sp500, ~ .x - `3mTCM`))
+head(capmAdjusted)
+```
+
+
+```{r}
+col <- colnames(capmAdjusted)
+col <- col[-c(1, 12,13,14)]
+
+cutoff <- 54
+period1 <- seq(1,cutoff)
+period2 <- seq(cutoff, nrow(capmAdjusted))
+#only want to keep the 10 stocks to regress on
+
+capmPeriod1 <- capmAdjusted[period1, ]
+capmPeriod2 <- capmAdjusted[period2, ]
+
+beta1 <- list()
+beta2 <- list()
+for(i in col){
+  beta1[[i]] <- lm(get(i) ~ sp500, capmPeriod1)
+  beta2[[i]] <- lm(get(i) ~ sp500, capmPeriod2)
+}
+
+
+
+```
+
+
+```{r}
+diffBeta <- list()
+#typeof(beta1$AAPL$coefficients[2])
+for(i in col)
+  diffBeta[[i]] <- beta2[[i]]$coefficients[2] - beta1[[i]]$coefficients[2]
+
+diffBeta
+```
+
+
+As you can tell, these are very very different across time periods.
+
+
+```{r}
+#Should return a tibble of size nx1 of estimated dynamic beta
+singleKalmanFilter <- function(beta0, betaVariance, stockObs, marketObs, obsVariance){
+  n <- 1:length(marketObs)
+  updatedBeta <- matrix(0, nrow = n)
+  
+  priorVariance_i <- betaVariance
+  priorBeta_i <- beta0
+  
+  for(i in n){
+    K_i <- computeKalman(obsVariance, priorVariance_i, marketObs[i])
+    posteriorBeta <- updatePriorBeta(priorBeta_i, K_i, marketObs[i], stockObs[i])
+    posteriorVar_i <- updatePriorVar(K_i, priorVariance_i, marketObs[i], obsVariance)
+    
+    priorBeta_i <- posteriorBeta
+    priorVariance_i <- posteriorVar_i
+    
+    updatedBeta[i] <- priorBeta_i
+  }
+  return(updatedBeta)
+}
+
+```
+
+```{r}
+computeKalman <- function(obsVariance, priorVariance_i, marketObs){
+  return( (priorVariance_i*marketObs) / (obsVariance + (priorVariance_i*(marketObs**2))))
+}
+
+updatePriorBeta <- function(priorBeta_i, K_i, marketObs, stockObs){
+  return(priorBeta_i + K_i*(stockObs - priorBeta_i*marketObs))
+}
+
+updatePriorVar <- function(K_i, priorVariance_i, marketObs, obsVariance){
+  return( ((1-K_i*marketObs)**2)*(priorVariance_i) + (1+K_i**2)*obsVariance)
+}
+
+```
+
+```{r}
+#Try out the function for one stock, AAPL
+estimatedBeta <- beta1$ADBE$coefficients[2]
+estimatedVar <- summary(beta1$ADBE)[[6]]
+obsVariance <- 0.2
+stockObs <- capmPeriod2$ADBE
+marketObs <- capmPeriod2$sp500
+
+dynamicBeta <- singleKalmanFilter(estimatedBeta, estimatedVar, stockObs, marketObs, obsVariance)
+
+```
+
+
+```{r}
+dynamicBeta
+plot(dynamicBeta, type = "o")
+
+```
+
+```{r}
+
+#Now lets try to do this for all of the stocks
+#Also note that we are not taking into account the covariances of these stocks, i.e. we are assuming
+#the process and measurement errors are independent for each stock
+dynamicBetaAll <- list()
+
+for(i in col){
+  estimatedBeta_i <- beta1[[i]]$coefficients[2]
+  estimatedVar_i <- summary(beta1[[i]])[[6]]
+  obsVariance <- 0.2
+  stockObs <- as.matrix(capmPeriod2[i])
+  marketObs <- capmPeriod2$sp500
+  dynamicBetaAll[[i]] <- singleKalmanFilter(estimatedBeta_i, estimatedVar_i, 
+                                            stockObs, marketObs, obsVariance)
+}
+
+
+
+```
+
+
+
+```{r}
+
+ymin = min(unlist(dynamicBetaAll))
+ymax = max(unlist(dynamicBetaAll))
+
+plot(NULL, xlim=c(0,length(dynamicBetaAll[[1]])), ylim = c(ymin, ymax), ylab = "dynamic Beta")
+for(i in seq_along(dynamicBetaAll)){
+  lines(dynamicBetaAll[[i]], col=i, type = "o")
+}
+
+```
+
+
+
+
+
+
+
+
+
+

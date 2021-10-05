@@ -24,7 +24,7 @@ sampleStat <- function(data, idx){
   data2 <- data[idx, ]
   numericCol <- data2 %>% sapply(is.numeric)
   sampleMean <- data2 %>% summarise_if(is.numeric, mean)
-  sampleCov <- cov(data2[,numericCol])
+  sampleCov <- cov(data2[, numericCol])
   return( list(sampleMean, sampleCov))
 }
 
@@ -35,24 +35,23 @@ sampleStat <- function(data, idx){
 #Compute the sample means 
 idx <- 1:nrow(logRet)
 sample <- sampleStat(logRet)
-sampleMean <- sample[1]
-sampleCov <- sample[2]
-sampleMean
-sampleCov
+sampleMean <- as.matrix(sample[1][[1]])
+sampleCov <- sample[2][[1]]
+sampleMean <- t(sampleMean)
 ```
 
 
 ```{r}
 optimalWeight <-function(sampleMean, sampleCovariance, targetReturn, rf){
-  rfMatrix <- matrix(rf, nrow = nrow(sampleMeanMatrix), ncol = ncol(sampleMeanMatrix))
-  inverseCov <- solve(sampleCovMatrix)
-  riskAdjMean <- sampleMeanMatrix - rfMatrix
+  rfMatrix <- matrix(rf, nrow = nrow(sampleMean), ncol = ncol(sampleMean))
+  inverseCov <- solve(sampleCovariance)
+  riskAdjMean <- sampleMean - rfMatrix
+  
 
-
-  weightDenominator <- riskAdjMean %*% inverseCov %*% t(riskAdjMean)
+  weightDenominator <- t(riskAdjMean) %*% inverseCov %*% riskAdjMean
   weightCoeff <- (targetReturn - rf) / weightDenominator[1,1]
 
-  optimalWeights <- weightCoeff * inverseCov %*% t(riskAdjMean)
+  optimalWeights <- weightCoeff * inverseCov %*% riskAdjMean
   
   return(optimalWeights)
 }
@@ -68,10 +67,10 @@ optimalWeight <-function(sampleMean, sampleCovariance, targetReturn, rf){
 
 rf <- 0.0
 targetReturn <- 0.3
-optimalWeights <- optimalWeight(sampleMean, sampleCovariance, targetReturn, rf)
+optimalWeights <- optimalWeight(sampleMean, sampleCov, targetReturn, rf)
 
 #check that these weights have our expected return:
-return <- t(optimalWeights) %*% t(sampleMeanMatrix)
+return <- t(optimalWeights) %*% sampleMean
 return
 
 ```
@@ -84,14 +83,16 @@ bootstrapWeights <- function(data, statisticFunction, targetReturn, rf, B = 500)
   resamples <- 1:B
   for (i in resamples){
     iStats <- statisticFunction(data, sample(nrow(data), replace = TRUE))
-    iMean <- iStats[1]
-    iCov <- iStats[2]
+    iMean <- as.matrix(iStats[1][[1]])
+    iCov <- iStats[2][[1]]
+    iMean <- t(iMean)
     iOptWeight <- optimalWeight(iMean, iCov, targetReturn, rf)
     cumWeights <- cumWeights + iOptWeight
   }
   cumWeights <- (cumWeights * (1.0/B))
   return(cumWeights)
 }
+
 ```
 
 ```{r}
@@ -111,7 +112,7 @@ bootWeights
 mu = seq(-0.5, 0.5, by = 0.01)
 sig = c()
 for (i in mu){
-  iOptWeight <- optimalWeight(sampleMeanMatrix, sampleCovMatrix, i, rf)
+  iOptWeight <- optimalWeight(sampleMean, sampleCov, i, rf)
   isig = t(iOptWeight) %*% sampleCovMatrix %*% iOptWeight
   sig <- append(sig, isig[1,1])
 }
