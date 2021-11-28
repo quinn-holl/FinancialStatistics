@@ -1,3 +1,3 @@
 # FinancialStatistics
 
-Contains R scripts for exercises to my Financial Statistics Coursework
+Contains python notebooks for exercises to my Financial Statistics Coursework
